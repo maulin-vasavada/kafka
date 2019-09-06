@@ -27,7 +27,6 @@ import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
@@ -47,7 +46,7 @@ public class SslFactory implements Reconfigurable {
     private final String clientAuthConfigOverride;
     private final boolean keystoreVerifiableUsingTruststore;
     private String endpointIdentification;
-    private ISslEngineBuilder sslEngineBuilder;
+    private SslEngineFactory sslEngineFactory;
 
     public SslFactory(Mode mode) {
         this(mode, null, false);
@@ -72,7 +71,7 @@ public class SslFactory implements Reconfigurable {
 
     @Override
     public void configure(Map<String, ?> configs) throws KafkaException {
-        if (sslEngineBuilder != null) {
+        if (sslEngineFactory != null) {
             throw new IllegalStateException("SslFactory was already configured.");
         }
         this.endpointIdentification = (String) configs.get(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG);
@@ -84,7 +83,7 @@ public class SslFactory implements Reconfigurable {
         if (clientAuthConfigOverride != null) {
             nextConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, clientAuthConfigOverride);
         }
-        ISslEngineBuilder builder = SslEngineBuilderInstantiator.instantiateSslEngineBuilder(nextConfigs);
+        SslEngineFactory builder = SslEngineFactoryInstantiator.instantiateSslEngineFactory(nextConfigs);
         if (keystoreVerifiableUsingTruststore) {
             try {
                 SslEngineValidator.validate(builder, builder);
@@ -93,72 +92,72 @@ public class SslFactory implements Reconfigurable {
                         "can't connect to a server SSLEngine created with those settings.", e);
             }
         }
-        this.sslEngineBuilder = builder;
+        this.sslEngineFactory = builder;
     }
 
     @Override
     public Set<String> reconfigurableConfigs() {
-        return sslEngineBuilder.reconfigurableConfigs();
+        return sslEngineFactory.reconfigurableConfigs();
     }
 
     @Override
     public void validateReconfiguration(Map<String, ?> newConfigs) {
-        createNewSslEngineBuilder(newConfigs);
+        createNewSslEngineFactory(newConfigs);
     }
 
     @Override
     public void reconfigure(Map<String, ?> newConfigs) throws KafkaException {
-       ISslEngineBuilder newSslEngineBuilder = createNewSslEngineBuilder(newConfigs);
-        if (newSslEngineBuilder != this.sslEngineBuilder) {
-            this.sslEngineBuilder = newSslEngineBuilder;
+       SslEngineFactory newSslEngineBuilder = createNewSslEngineFactory(newConfigs);
+        if (newSslEngineBuilder != this.sslEngineFactory) {
+            this.sslEngineFactory = newSslEngineBuilder;
             log.info("Created new {} SSL engine builder with keystore {} truststore {}", mode,
                     newSslEngineBuilder.keystore(), newSslEngineBuilder.truststore());
         }
     }
 
-    public SSLContext sslContext() {
-        return sslEngineBuilder.getSSLContext();
+    public SslEngineFactory getSslEngineFactory() {
+        return sslEngineFactory;
     }
 
-    private ISslEngineBuilder createNewSslEngineBuilder(Map<String, ?> newConfigs) {
-        if (sslEngineBuilder == null) {
+    private SslEngineFactory createNewSslEngineFactory(Map<String, ?> newConfigs) {
+        if (sslEngineFactory == null) {
             throw new IllegalStateException("SslFactory has not been configured.");
         }
-        Map<String, Object> nextConfigs = new HashMap<>(sslEngineBuilder.currentConfigs());
+        Map<String, Object> nextConfigs = new HashMap<>(sslEngineFactory.currentConfigs());
         copyMapEntries(nextConfigs, newConfigs, SslConfigs.RECONFIGURABLE_CONFIGS);
         if (clientAuthConfigOverride != null) {
             nextConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, clientAuthConfigOverride);
         }
-        if (!sslEngineBuilder.shouldBeRebuilt(nextConfigs)) {
-            return sslEngineBuilder;
+        if (!sslEngineFactory.shouldBeRebuilt(nextConfigs)) {
+            return sslEngineFactory;
         }
         try {
-            ISslEngineBuilder newSslEngineBuilder = SslEngineBuilderInstantiator.instantiateSslEngineBuilder(nextConfigs);
-            if (sslEngineBuilder.keystore() == null) {
-                if (newSslEngineBuilder.keystore() != null) {
+            SslEngineFactory newSslEngineFactory = SslEngineFactoryInstantiator.instantiateSslEngineFactory(nextConfigs);
+            if (sslEngineFactory.keystore() == null) {
+                if (newSslEngineFactory.keystore() != null) {
                     throw new ConfigException("Cannot add SSL keystore to an existing listener for " +
                             "which no keystore was configured.");
                 }
             } else {
-                if (newSslEngineBuilder.keystore() == null) {
+                if (newSslEngineFactory.keystore() == null) {
                     throw new ConfigException("Cannot remove the SSL keystore from an existing listener for " +
                             "which a keystore was configured.");
                 }
-                if (!CertificateEntries.create(sslEngineBuilder.keystore()).equals(
-                        CertificateEntries.create(newSslEngineBuilder.keystore()))) {
+                if (!CertificateEntries.create(sslEngineFactory.keystore()).equals(
+                        CertificateEntries.create(newSslEngineFactory.keystore()))) {
                     throw new ConfigException("Keystore DistinguishedName or SubjectAltNames do not match");
                 }
             }
-            if (sslEngineBuilder.truststore() == null && newSslEngineBuilder.truststore() != null) {
+            if (sslEngineFactory.truststore() == null && newSslEngineFactory.truststore() != null) {
                 throw new ConfigException("Cannot add SSL truststore to an existing listener for which no " +
                         "truststore was configured.");
             }
             if (keystoreVerifiableUsingTruststore) {
-                if (sslEngineBuilder.truststore() != null || sslEngineBuilder.keystore() != null) {
-                    SslEngineValidator.validate(sslEngineBuilder, newSslEngineBuilder);
+                if (sslEngineFactory.truststore() != null || sslEngineFactory.keystore() != null) {
+                    SslEngineValidator.validate(sslEngineFactory, newSslEngineFactory);
                 }
             }
-            return newSslEngineBuilder;
+            return newSslEngineFactory;
         } catch (Exception e) {
             log.debug("Validation of dynamic config update of SSLFactory failed.", e);
             throw new ConfigException("Validation of dynamic config update of SSLFactory failed: " + e);
@@ -166,14 +165,14 @@ public class SslFactory implements Reconfigurable {
     }
 
     public SSLEngine createSslEngine(String peerHost, int peerPort) {
-        if (sslEngineBuilder == null) {
+        if (sslEngineFactory == null) {
             throw new IllegalStateException("SslFactory has not been configured.");
         }
-        return sslEngineBuilder.build(mode, peerHost, peerPort, endpointIdentification);
+        return sslEngineFactory.create(mode, peerHost, peerPort, endpointIdentification);
     }
 
-    ISslEngineBuilder sslEngineBuilder() {
-        return sslEngineBuilder;
+    SslEngineFactory sslEngineFactory() {
+        return sslEngineFactory;
     }
 
     /**
@@ -210,44 +209,46 @@ public class SslFactory implements Reconfigurable {
         }
     }
 
-    static class SslEngineBuilderInstantiator {
+    static class SslEngineFactoryInstantiator {
 
-        final static String SSL_ENGINEBUILDER_CLASS_CONFIG = "ssl.engine.builder.class";
-        final static String DEFAULT_SSL_ENGINEBUILDER_CLASS = "org.apache.kafka.common.security.ssl.DefaultSslEngineBuilder";
+        final static String SSL_ENGINEFACTORY_CLASS_CONFIG = "ssl.engine.factory.class";
+        final static String DEFAULT_SSL_ENGINEFACTORY_CLASS = "org.apache.kafka.common.security.ssl.DefaultSslEngineFactory";
 
-        static ISslEngineBuilder instantiateSslEngineBuilder(Map<String,Object> configs) {
-            Class<ISslEngineBuilder> sslEngineBuilderClass = loadSslEngineBuilderClass(configs);
-            ISslEngineBuilder sslEngineBuilder = createInstance(sslEngineBuilderClass,configs);
-            return sslEngineBuilder;
+        static SslEngineFactory instantiateSslEngineFactory(Map<String,Object> configs) {
+            Class<SslEngineFactory> sslEngineFactoryClass = loadSslEngineFactoryClass(configs);
+            SslEngineFactory sslEngineFactory = createInstance(sslEngineFactoryClass,configs);
+            return sslEngineFactory;
         }
 
-        private static ISslEngineBuilder createInstance(Class<ISslEngineBuilder> sslEngineBuilderClass, Map<String, Object> configs) {
+        private static SslEngineFactory createInstance(Class<SslEngineFactory> sslEngineFactoryClass, Map<String, Object> configs) {
             try {
-                return sslEngineBuilderClass.getDeclaredConstructor(Map.class).newInstance(configs);
+                return sslEngineFactoryClass.getDeclaredConstructor(Map.class).newInstance(configs);
             } catch (InstantiationException|IllegalAccessException|InvocationTargetException|NoSuchMethodException e) {
-                log.warn("Failed to instantiate {} {}",SSL_ENGINEBUILDER_CLASS_CONFIG, sslEngineBuilderClass.getCanonicalName(),e);
-                throw new ConfigException("Failed to instantiate "+SSL_ENGINEBUILDER_CLASS_CONFIG+" "+
-                        sslEngineBuilderClass.getCanonicalName()+". msg="+e.getMessage());
+                log.warn("Failed to instantiate {} {}", SSL_ENGINEFACTORY_CLASS_CONFIG, sslEngineFactoryClass.getCanonicalName(),e);
+                throw new ConfigException("Failed to instantiate "+ SSL_ENGINEFACTORY_CLASS_CONFIG +" "+
+                        sslEngineFactoryClass.getCanonicalName()+". msg="+e.getMessage());
             }
         }
 
-        private static Class<ISslEngineBuilder> loadSslEngineBuilderClass(Map<String,Object> configs) {
+        @SuppressWarnings("unchecked")
+        private static Class<SslEngineFactory> loadSslEngineFactoryClass(Map<String,Object> configs) {
 
-            String sslEngineBuilderClassConfig = (String)configs.getOrDefault(SSL_ENGINEBUILDER_CLASS_CONFIG,
-                    DEFAULT_SSL_ENGINEBUILDER_CLASS);
+            String sslEngineFactoryClassConfig = (String)configs.getOrDefault(SSL_ENGINEFACTORY_CLASS_CONFIG,
+                    DEFAULT_SSL_ENGINEFACTORY_CLASS);
 
             try {
-                Class clazz = Class.forName(sslEngineBuilderClassConfig);
-                if ( ISslEngineBuilder.class.isAssignableFrom(clazz)) {
-                    return (Class<ISslEngineBuilder>)clazz;
+                Class clazz = Class.forName(sslEngineFactoryClassConfig);
+
+                if ( SslEngineFactory.class.isAssignableFrom(clazz)) {
+                    return (Class<SslEngineFactory>)clazz;
                 } else {
-                    throw new ConfigException("Specified "+SSL_ENGINEBUILDER_CLASS_CONFIG+" is not instance of ISslEngineBuilder ",
-                            sslEngineBuilderClassConfig);
+                    throw new ConfigException("Specified "+ SSL_ENGINEFACTORY_CLASS_CONFIG +" is not instance of SslEngineFactory ",
+                            sslEngineFactoryClassConfig);
                 }
             } catch(ClassNotFoundException e) {
-                log.warn("Could not find specified class {} for {}", sslEngineBuilderClassConfig, SSL_ENGINEBUILDER_CLASS_CONFIG, e);
-                throw new ConfigException("Failed to load specified class "+sslEngineBuilderClassConfig+" for " +
-                        SSL_ENGINEBUILDER_CLASS_CONFIG+" "+e);
+                log.warn("Could not find specified class {} for {}", sslEngineFactoryClassConfig, SSL_ENGINEFACTORY_CLASS_CONFIG, e);
+                throw new ConfigException("Failed to load specified class "+sslEngineFactoryClassConfig+" for " +
+                        SSL_ENGINEFACTORY_CLASS_CONFIG +" "+e);
             }
         }
     }
@@ -308,17 +309,17 @@ public class SslFactory implements Reconfigurable {
         private ByteBuffer appBuffer;
         private ByteBuffer netBuffer;
 
-        static void validate(ISslEngineBuilder oldEngineBuilder,
-                             ISslEngineBuilder newEngineBuilder) throws SSLException {
+        static void validate(SslEngineFactory oldEngineBuilder,
+                             SslEngineFactory newEngineBuilder) throws SSLException {
             validate(createSslEngineForValidation(oldEngineBuilder, Mode.SERVER),
                     createSslEngineForValidation(newEngineBuilder, Mode.CLIENT));
             validate(createSslEngineForValidation(newEngineBuilder, Mode.SERVER),
                     createSslEngineForValidation(oldEngineBuilder, Mode.CLIENT));
         }
 
-        private static SSLEngine createSslEngineForValidation(ISslEngineBuilder sslEngineBuilder, Mode mode) {
+        private static SSLEngine createSslEngineForValidation(SslEngineFactory sslEngineBuilder, Mode mode) {
             // Use empty hostname, disable hostname verification
-            return sslEngineBuilder.build(mode, "", 0, "");
+            return sslEngineBuilder.create(mode, "", 0, "");
         }
 
         static void validate(SSLEngine clientEngine, SSLEngine serverEngine) throws SSLException {

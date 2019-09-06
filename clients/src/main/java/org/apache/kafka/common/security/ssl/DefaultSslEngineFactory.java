@@ -37,8 +37,8 @@ import java.security.SecureRandom;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class DefaultSslEngineBuilder implements ISslEngineBuilder {
-    private static final Logger log = LoggerFactory.getLogger(DefaultSslEngineBuilder.class);
+public class DefaultSslEngineFactory implements SslEngineFactory {
+    private static final Logger log = LoggerFactory.getLogger(DefaultSslEngineFactory.class);
 
     private final Map<String, ?> configs;
     private final String protocol;
@@ -60,7 +60,7 @@ public class DefaultSslEngineBuilder implements ISslEngineBuilder {
     private SecurityStore internalTruststore;
 
     @SuppressWarnings("unchecked")
-    public DefaultSslEngineBuilder(Map<String, ?> configs) {
+    public DefaultSslEngineFactory(Map<String, ?> configs) {
         this.configs = Collections.unmodifiableMap(configs);
         this.protocol = (String) configs.get(SslConfigs.SSL_PROTOCOL_CONFIG);
         this.provider = (String) configs.get(SslConfigs.SSL_PROVIDER_CONFIG);
@@ -97,7 +97,7 @@ public class DefaultSslEngineBuilder implements ISslEngineBuilder {
     }
 
     @Override
-    public SSLEngine build(Mode mode, String peerHost, int peerPort, String endpointIdentification) {
+    public SSLEngine create(Mode mode, String peerHost, int peerPort, String endpointIdentification) {
         SSLEngine sslEngine = sslContext.createSSLEngine(peerHost, peerPort);
         if (cipherSuites != null) sslEngine.setEnabledCipherSuites(cipherSuites);
         if (enabledProtocols != null) sslEngine.setEnabledProtocols(enabledProtocols);
@@ -126,7 +126,6 @@ public class DefaultSslEngineBuilder implements ISslEngineBuilder {
         return sslEngine;
     }
 
-    @Override
     public SSLContext getSSLContext() {
         return sslContext;
     }

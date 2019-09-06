@@ -8,10 +8,10 @@ import java.security.KeyStore;
 import java.util.Map;
 import java.util.Set;
 
-public interface ISslEngineBuilder {
+public interface SslEngineFactory {
 
     /**
-     * Builds a new SSLEngine object.
+     * Creates a new SSLEngine object.
      *
      * @param mode      Whether to use client or server mode.
      * @param peerHost  The peer host to use. This is used in client mode if endpoint validation is enabled.
@@ -19,28 +19,22 @@ public interface ISslEngineBuilder {
      * @param endpointIdentification Endpoint identification algorithm for client mode.
      * @return          The new SSLEngine.
      */
-    SSLEngine build(Mode mode, String peerHost, int peerPort, String endpointIdentification);
+    SSLEngine create(Mode mode, String peerHost, int peerPort, String endpointIdentification);
 
     /**
-     * Retruns the SSLContext built by this builder.
-     * @return
-     */
-    SSLContext getSSLContext();
-
-    /**
-     * Returns the currently used configurations by this builder.
+     * Returns the currently used configurations by this engine.
      * @return
      */
     Map<String, Object> currentConfigs();
 
     /**
-     * Returns the reconfigurable configs this engine builder may need to use.
+     * Returns the reconfigurable configs used by this engine.
      * @return
      */
     Set<String> reconfigurableConfigs();
 
     /**
-     * Returns true if this SslEngineBuilder needs to be rebuilt.
+     * Returns true if this engine needs to be rebuilt.
      *
      * @param nextConfigs       The configuration we want to use.
      * @return                  True only if this builder should be rebuilt.
@@ -48,13 +42,13 @@ public interface ISslEngineBuilder {
     boolean shouldBeRebuilt(Map<String, Object> nextConfigs);
 
     /**
-     * Returns the {@code KeyStore} for the keystore used by this builder.
+     * Returns the {@code KeyStore} for the keystore used by this engine.
      * @return
      */
     KeyStore keystore();
 
     /**
-     * Returns the {@code KeyStore} for the truststore used by this builder.
+     * Returns the {@code KeyStore} for the truststore used by this engine.
      * @return
      */
     KeyStore truststore();
