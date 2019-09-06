@@ -107,11 +107,11 @@ public class SslFactory implements Reconfigurable {
 
     @Override
     public void reconfigure(Map<String, ?> newConfigs) throws KafkaException {
-       SslEngineFactory newSslEngineBuilder = createNewSslEngineFactory(newConfigs);
-        if (newSslEngineBuilder != this.sslEngineFactory) {
-            this.sslEngineFactory = newSslEngineBuilder;
-            log.info("Created new {} SSL engine builder with keystore {} truststore {}", mode,
-                    newSslEngineBuilder.keystore(), newSslEngineBuilder.truststore());
+       SslEngineFactory newSslEngineFactory = createNewSslEngineFactory(newConfigs);
+        if (newSslEngineFactory != this.sslEngineFactory) {
+            this.sslEngineFactory = newSslEngineFactory;
+            log.info("Created new {} SSL engine factory with keystore {} truststore {}", mode,
+                    newSslEngineFactory.keystore(), newSslEngineFactory.truststore());
         }
     }
 
@@ -309,17 +309,17 @@ public class SslFactory implements Reconfigurable {
         private ByteBuffer appBuffer;
         private ByteBuffer netBuffer;
 
-        static void validate(SslEngineFactory oldEngineBuilder,
-                             SslEngineFactory newEngineBuilder) throws SSLException {
-            validate(createSslEngineForValidation(oldEngineBuilder, Mode.SERVER),
-                    createSslEngineForValidation(newEngineBuilder, Mode.CLIENT));
-            validate(createSslEngineForValidation(newEngineBuilder, Mode.SERVER),
-                    createSslEngineForValidation(oldEngineBuilder, Mode.CLIENT));
+        static void validate(SslEngineFactory oldEngineFactory,
+                             SslEngineFactory newEngineFactory) throws SSLException {
+            validate(createSslEngineForValidation(oldEngineFactory, Mode.SERVER),
+                    createSslEngineForValidation(newEngineFactory, Mode.CLIENT));
+            validate(createSslEngineForValidation(newEngineFactory, Mode.SERVER),
+                    createSslEngineForValidation(oldEngineFactory, Mode.CLIENT));
         }
 
-        private static SSLEngine createSslEngineForValidation(SslEngineFactory sslEngineBuilder, Mode mode) {
+        private static SSLEngine createSslEngineForValidation(SslEngineFactory sslEngineFactory, Mode mode) {
             // Use empty hostname, disable hostname verification
-            return sslEngineBuilder.create(mode, "", 0, "");
+            return sslEngineFactory.create(mode, "", 0, "");
         }
 
         static void validate(SSLEngine clientEngine, SSLEngine serverEngine) throws SSLException {
