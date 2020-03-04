@@ -22,6 +22,7 @@ import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.config.types.Password;
 import org.apache.kafka.common.network.Mode;
+import org.apache.kafka.common.security.auth.SslEngineFactory;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,48 +52,28 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultSslEngineFactory.class);
 
-    private final Map<String, ?> configs;
-    private final String protocol;
-    private final String provider;
-    private final String kmfAlgorithm;
-    private final String tmfAlgorithm;
-    private final SecurityStore keystore;
-    private final SecurityStore truststore;
-    private final String[] cipherSuites;
-    private final String[] enabledProtocols;
-    private final SecureRandom secureRandomImplementation;
-    private final SSLContext sslContext;
-    private final SslClientAuth sslClientAuth;
+    private Map<String, ?> configs;
+    private String protocol;
+    private String provider;
+    private String kmfAlgorithm;
+    private String tmfAlgorithm;
+    private SecurityStore keystore;
+    private SecurityStore truststore;
+    private String[] cipherSuites;
+    private String[] enabledProtocols;
+    private SecureRandom secureRandomImplementation;
+    private SSLContext sslContext;
+    private SslClientAuth sslClientAuth;
 
 
     @Override
-    public SSLEngine createSslEngine(Mode mode, String peerHost, int peerPort, String endpointIdentification) {
-        SSLEngine sslEngine = sslContext.createSSLEngine(peerHost, peerPort);
-        if (cipherSuites != null) sslEngine.setEnabledCipherSuites(cipherSuites);
-        if (enabledProtocols != null) sslEngine.setEnabledProtocols(enabledProtocols);
+    public SSLEngine createClientSslEngine(String peerHost, int peerPort, String endpointIdentification) {
+        return createSslEngine(Mode.CLIENT, peerHost, peerPort, endpointIdentification);
+    }
 
-        if (mode == Mode.SERVER) {
-            sslEngine.setUseClientMode(false);
-            switch (sslClientAuth) {
-                case REQUIRED:
-                    sslEngine.setNeedClientAuth(true);
-                    break;
-                case REQUESTED:
-                    sslEngine.setWantClientAuth(true);
-                    break;
-                case NONE:
-                    break;
-            }
-            sslEngine.setUseClientMode(false);
-        } else {
-            sslEngine.setUseClientMode(true);
-            SSLParameters sslParams = sslEngine.getSSLParameters();
-            // SSLParameters#setEndpointIdentificationAlgorithm enables endpoint validation
-            // only in client mode. Hence, validation is enabled only for clients.
-            sslParams.setEndpointIdentificationAlgorithm(endpointIdentification);
-            sslEngine.setSSLParameters(sslParams);
-        }
-        return sslEngine;
+    @Override
+    public SSLEngine createServerSslEngine(String peerHost, int peerPort) {
+        return createSslEngine(Mode.SERVER, peerHost, peerPort, null);
     }
 
     @Override
@@ -115,12 +96,6 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> configs() {
-        return (Map<String, Object>) configs;
-    }
-
-    @Override
     public KeyStore keystore() {
         return this.keystore != null ? this.keystore.get() : null;
     }
@@ -131,7 +106,8 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
     }
 
     @SuppressWarnings("unchecked")
-    public DefaultSslEngineFactory(Map<String, ?> configs) {
+    @Override
+    public void configure(Map<String, ?> configs) {
         this.configs = Collections.unmodifiableMap(configs);
         this.protocol = (String) configs.get(SslConfigs.SSL_PROTOCOL_CONFIG);
         this.provider = (String) configs.get(SslConfigs.SSL_PROVIDER_CONFIG);
@@ -172,11 +148,44 @@ public final class DefaultSslEngineFactory implements SslEngineFactory {
         this.sslContext = createSSLContext();
     }
 
+    @Override
+    public void close() throws IOException {
+        this.sslContext = null;
+    }
+
     //For Test only
     public SSLContext sslContext() {
         return this.sslContext;
     }
 
+    private SSLEngine createSslEngine(Mode mode, String peerHost, int peerPort, String endpointIdentification) {
+        SSLEngine sslEngine = sslContext.createSSLEngine(peerHost, peerPort);
+        if (cipherSuites != null) sslEngine.setEnabledCipherSuites(cipherSuites);
+        if (enabledProtocols != null) sslEngine.setEnabledProtocols(enabledProtocols);
+
+        if (mode == Mode.SERVER) {
+            sslEngine.setUseClientMode(false);
+            switch (sslClientAuth) {
+                case REQUIRED:
+                    sslEngine.setNeedClientAuth(true);
+                    break;
+                case REQUESTED:
+                    sslEngine.setWantClientAuth(true);
+                    break;
+                case NONE:
+                    break;
+            }
+            sslEngine.setUseClientMode(false);
+        } else {
+            sslEngine.setUseClientMode(true);
+            SSLParameters sslParams = sslEngine.getSSLParameters();
+            // SSLParameters#setEndpointIdentificationAlgorithm enables endpoint validation
+            // only in client mode. Hence, validation is enabled only for clients.
+            sslParams.setEndpointIdentificationAlgorithm(endpointIdentification);
+            sslEngine.setSSLParameters(sslParams);
+        }
+        return sslEngine;
+    }
     private static SslClientAuth createSslClientAuth(String key) {
         SslClientAuth auth = SslClientAuth.forConfig(key);
         if (auth != null) {

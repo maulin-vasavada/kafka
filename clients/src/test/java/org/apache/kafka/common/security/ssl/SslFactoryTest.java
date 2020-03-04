@@ -30,6 +30,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.SecurityConfig;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.types.Password;
+import org.apache.kafka.common.security.auth.SslEngineFactory;
 import org.apache.kafka.common.security.ssl.mock.TestKeyManagerFactory;
 import org.apache.kafka.common.security.ssl.mock.TestProviderCreator;
 import org.apache.kafka.common.security.ssl.mock.TestTrustManagerFactory;

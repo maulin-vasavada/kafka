@@ -23,6 +23,7 @@ import org.apache.kafka.common.config.SecurityConfig;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.network.Mode;
+import org.apache.kafka.common.security.auth.SslEngineFactory;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +56,7 @@ public class SslFactory implements Reconfigurable {
     private final boolean keystoreVerifiableUsingTruststore;
     private String endpointIdentification;
     private SslEngineFactory sslEngineFactory;
+    private Map<String, Object> sslEngineFactoryConfig;
 
     public SslFactory(Mode mode) {
         this(mode, null, false);
@@ -85,9 +87,7 @@ public class SslFactory implements Reconfigurable {
         this.endpointIdentification = (String) configs.get(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG);
 
         Map<String, Object> nextConfigs = new HashMap<>();
-        copyMapEntries(nextConfigs, configs, SslConfigs.NON_RECONFIGURABLE_CONFIGS);
-        // FIXME Need to figure out how to depend on SslEngineFactory's reconfigurables without instantiating it
-        copyMapEntries(nextConfigs, configs, SslConfigs.RECONFIGURABLE_CONFIGS);
+        copyAllSslConfigs(nextConfigs, configs);
         copyMapEntry(nextConfigs, configs, SecurityConfig.SECURITY_PROVIDERS_CONFIG);
         if (clientAuthConfigOverride != null) {
             nextConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, clientAuthConfigOverride);
@@ -128,7 +128,10 @@ public class SslFactory implements Reconfigurable {
         String sslEngineFactoryClass = (String) configs.getOrDefault(SslConfigs.SSL_ENGINE_FACTORY_CLASS_CONFIG,
                 DefaultSslEngineFactory.class.getCanonicalName());
         try {
-            return Utils.newParameterizedInstance(sslEngineFactoryClass, Map.class, configs);
+            SslEngineFactory sslEngineFactory = Utils.newInstance(sslEngineFactoryClass, SslEngineFactory.class);
+            sslEngineFactory.configure(configs);
+            this.sslEngineFactoryConfig = configs;
+            return sslEngineFactory;
         } catch (ClassNotFoundException e) {
             log.error("Creating new instance of SslEngineFactory failed for a given class {}.",
                     sslEngineFactoryClass, e);
@@ -141,7 +144,7 @@ public class SslFactory implements Reconfigurable {
         if (sslEngineFactory == null) {
             throw new IllegalStateException("SslFactory has not been configured.");
         }
-        Map<String, Object> nextConfigs = new HashMap<>(sslEngineFactory.configs());
+        Map<String, Object> nextConfigs = new HashMap<>(sslEngineFactoryConfig);
         copyMapEntries(nextConfigs, newConfigs, reconfigurableConfigs());
         if (clientAuthConfigOverride != null) {
             nextConfigs.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, clientAuthConfigOverride);
@@ -186,11 +189,30 @@ public class SslFactory implements Reconfigurable {
         if (sslEngineFactory == null) {
             throw new IllegalStateException("SslFactory has not been configured.");
         }
-        return sslEngineFactory.createSslEngine(mode, peerHost, peerPort, endpointIdentification);
+        if (mode == Mode.SERVER) {
+            return sslEngineFactory.createServerSslEngine(peerHost, peerPort);
+        } else {
+            return sslEngineFactory.createClientSslEngine(peerHost, peerPort, endpointIdentification);
+        }
     }
 
     public SslEngineFactory sslEngineFactory() {
         return sslEngineFactory;
+    }
+
+    /**
+     * Copy all entries for which the key starts with {@link SslConfigs#SSL_CONFIG_PREFIX} from one map into another.
+     *
+     * @param destMap   The map to copy entries into.
+     * @param srcMap    The map to copy entries from.
+     */
+    private static void copyAllSslConfigs(Map<String, Object> destMap,
+                                              Map<String, ? extends Object> srcMap) {
+        for (Map.Entry<String, ?> entry : srcMap.entrySet()) {
+            if (entry.getKey().startsWith(SslConfigs.SSL_CONFIG_PREFIX)) {
+                destMap.put(entry.getKey(), entry.getValue());
+            }
+        }
     }
 
     /**
@@ -293,7 +315,11 @@ public class SslFactory implements Reconfigurable {
 
         private static SSLEngine createSslEngineForValidation(SslEngineFactory sslEngineFactory, Mode mode) {
             // Use empty hostname, disable hostname verification
-            return sslEngineFactory.createSslEngine(mode, "", 0, "");
+            if (mode == Mode.SERVER) {
+                return sslEngineFactory.createServerSslEngine("", 0);
+            } else {
+                return sslEngineFactory.createClientSslEngine("", 0, "");
+            }
         }
 
         static void validate(SSLEngine clientEngine, SSLEngine serverEngine) throws SSLException {
